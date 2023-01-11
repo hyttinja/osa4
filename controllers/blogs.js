@@ -1,20 +1,38 @@
 const blogsRouter = require('express').Router()
 const Blog = require('../models/blog')
+const User = require('../models/user')
 
+
+/**
+const getTokenFrom = request => {
+  const authorization = request.get('authorization')
+  return (authorization && authorization.toLowerCase().startsWith('bearer ')) ?
+    authorization.substring(7) : null
+}
+ */
 blogsRouter.get('/', async(request, response) => {
-    const blogs = await Blog.find({})
+    const blogs = await Blog.find({}).populate('user',{id:1,name:1,username:1})
     return response.json(blogs)
 })
 blogsRouter.post('/', async(request, response,next) => {
+  try{
+    const user = request.user;
+    if (!user) {
+      return response.status(401).json({ error: 'User is not logged in' })
+    }
     const blog = new Blog({
       title: request.body.title,
       author: request.body.author,
       url: request.body.url,
-      likes: request.body.likes || 0
+      likes: request.body.likes || 0,
+      user: user._id
     })
-    try{
-      const result = await blog.save()
-      return response.status(201).json(result)
+ 
+
+      const savedBlog = await blog.save()
+      user.blogs = user.blogs.concat(savedBlog._id)
+      await user.save()
+      return response.status(201).json(savedBlog)
     }
     catch(error){
       next(error)
@@ -37,9 +55,16 @@ blogsRouter.put('/:id', async(request, response,next) => {
 })
 blogsRouter.delete('/:id', async(request, response, next) =>{
   try {
+    const user = request.user;
+    if (!user) {
+      return response.status(401).json({ error: 'User is not logged in' })
+    }
     const blog = await Blog.findById(request.params.id)
     if(blog){
-      await Blog.deleteOne({id: request.params.id})
+      if(blog.user.toString() !== user._id.toString()){
+        return response.status(401).json({ error: 'Unauthorized user' })
+      }
+      await Blog.deleteOne({_id: request.params.id})
       return response.status(204).end()
     }
     else{
